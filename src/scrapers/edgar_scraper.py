@@ -1,8 +1,9 @@
 # 1- edgar_scraper.py
 """
 edgar_scraper.py
-fetches all 8-K filings (official event reports) for a ticker from sec edgar,
-and saves them to a jsonl file on disk (one filing per line: date + url).
+fetches all 2026 8-K filings (official event reports) for a list of tickers
+from sec edgar, and saves each ticker's filings + body text to its own jsonl file.
+resumable: tickers already downloaded are skipped.
 """
 
 import requests
@@ -14,22 +15,20 @@ import os
 HEADERS = {"User-Agent": "Esther Kadosh esther.kadosh@mail.huji.ac.il"}  # required by sec
 RATE = 0.2  # =5 requests/sec
 OUT_DIR = "raw_data/edgar_filings"  # output folder
+TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM",
+           "V", "WMT", "JNJ", "PG", "MA", "HD", "KO", "PEP", "COST", "MRK",
+           "ABBV", "CRM", "NFLX", "AMD", "INTC", "CSCO", "ORCL"]  # sample 25
 
-# 2- ticker -> cik
-def get_cik(ticker):
+# 2- load ticker->cik map once
+def load_cik_map():
     """
-    this:
-    1-converts ticker (e.g. AAPL) to the CIK number sec uses to identify a company.
-    2-fetches the full ticker->company list from sec and searches for the wanted ticker.
-    3-raises an error if not found.
+    fetches the full ticker->cik list from sec a single time.
+    returns a dict of ticker -> 10-digit cik for fast lookup.
     """
     url = "https://www.sec.gov/files/company_tickers.json"
     r = requests.get(url, headers=HEADERS)
     r.raise_for_status()
-    for e in r.json().values():
-        if e["ticker"] == ticker.upper():
-            return str(e["cik_str"]).zfill(10)  # 10 digits, padded
-    raise ValueError(f"{ticker} not found")
+    return {e["ticker"]: str(e["cik_str"]).zfill(10) for e in r.json().values()}
 
 # 3- fetch filings
 def get_filings(cik):
@@ -45,7 +44,8 @@ def get_filings(cik):
 def extract_8k(data, cik, ticker):
     """
     1-pulls all 8-K filings from the recent block.
-    2-builds a record per filing including a direct url to the filing index.
+    2-keeps only 2026 filings (the project window).
+    3-builds a record per filing including a direct url to the filing.
     """
     recent = data["filings"]["recent"]
     forms = recent["form"]
@@ -54,10 +54,10 @@ def extract_8k(data, cik, ticker):
     docs = recent["primaryDocument"]        # main file name
 
     records = []
-    cik_int = int(cik)  # without leading zeros - for url path uses
+    cik_int = int(cik)  # without leading zeros - for url path
     for form, date, acc, doc in zip(forms, dates, accessions, docs):
         if form == "8-K" and date >= "2026-01-01":  # 2026 only - project window
-            acc_nodash = acc.replace("-", "")  # without dashes - for url path uses
+            acc_nodash = acc.replace("-", "")  # without dashes - for url path
             url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_nodash}/{doc}"
             records.append({
                 "ticker": ticker,
@@ -69,19 +69,7 @@ def extract_8k(data, cik, ticker):
             })
     return records
 
-# 5- save jsonl
-def save_jsonl(records, ticker):
-    """
-    writes each record as one json line. line-buffered so nothing is lost on crash.
-    """
-    os.makedirs(OUT_DIR, exist_ok=True)  # create folder if missing
-    path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
-    with open(path, "w", encoding="utf-8", buffering=1) as f:  # buffering=1 = line-buffered
-        for rec in records:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    return path
-
-# 6- strip boilerplate
+# 5- strip boilerplate
 def clean_boilerplate(text):
     """
     1-drops common sec legal lines that repeat in every filing and carry no signal.
@@ -104,7 +92,7 @@ def clean_boilerplate(text):
             lines.append(line.strip())
     return "\n".join(lines)
 
-# 7- fetch filing body text
+# 6- fetch filing body text
 def fetch_body(url):
     """
     1-downloads the filing html from the given url.
@@ -119,41 +107,49 @@ def fetch_body(url):
         return None
     return clean_boilerplate(text)
 
-# 8- save bodies
-def save_bodies(records, ticker):
+# 7- process one ticker
+def process_ticker(ticker, cik):
     """
-    1-goes over each filing record and downloads its body text.
-    2-saves all bodies to one jsonl file (record fields + the text).
-    3-rate-limited between requests to respect sec limits.
+    1-fetches the ticker's 2026 8-K filings and their body text.
+    2-writes them to the ticker's own jsonl file (skips empty bodies).
+    3-returns how many filings were saved.
     """
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, f"{ticker}_bodies.jsonl")
-    with open(path, "w", encoding="utf-8", buffering=1) as f:
-        for i, rec in enumerate(records):
+    data = get_filings(cik)
+    time.sleep(RATE)
+    records = extract_8k(data, cik, ticker)
+
+    path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
+    saved = 0
+    with open(path, "w", encoding="utf-8", buffering=1) as f:  # line-buffered
+        for rec in records:
             text = fetch_body(rec["url"])
             time.sleep(RATE)  # politeness between downloads
             if not text:  # skip filings with no extractable text
-                print(f"  {i+1}/{len(records)}  {rec['date']}  empty, skipped")
                 continue
-            rec["body"] = text  # attach text to the record
+            rec["body"] = text
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            print(f"  {i+1}/{len(records)}  {rec['date']}  chars={len(text)}")
-    return path
+            saved += 1
+    return saved
 
 # final- run
 def main():
-    ticker = "AAPL"
-    cik = get_cik(ticker)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    cik_map = load_cik_map()
     time.sleep(RATE)
 
-    data = get_filings(cik)
-    records = extract_8k(data, cik, ticker)
-    save_jsonl(records, ticker)
+    for i, ticker in enumerate(TICKERS):
+        path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
+        if os.path.exists(path):  # resume - skip already-downloaded tickers
+            print(f"  {i+1}/{len(TICKERS)}  {ticker}  already done, skipped")
+            continue
+        cik = cik_map.get(ticker)
+        if not cik:  # ticker not found in sec map
+            print(f"  {i+1}/{len(TICKERS)}  {ticker}  no cik, skipped")
+            continue
+        saved = process_ticker(ticker, cik)
+        print(f"  {i+1}/{len(TICKERS)}  {ticker}  saved {saved} filings")
 
-    # downloading bodies for the filings
-    print(f"{ticker} ({data.get('name', '?')}) cik={cik}  filings={len(records)}")
-    path = save_bodies(records, ticker)
-    print(f"saved bodies -> {path}")
+    print("done.")
 
 if __name__ == "__main__":
     main()
