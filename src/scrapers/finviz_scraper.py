@@ -1,7 +1,7 @@
 # 1- finviz_scraper.py
 """
 finviz_scraper.py
-fetches recent 2026 news headlines for a list of tickers from finviz,
+fetches recent 2026 news headlines for the s&p 500 from finviz,
 fills in each headline's date, and saves each ticker to its own jsonl file.
 resumable: tickers already downloaded are skipped.
 """
@@ -9,17 +9,18 @@ resumable: tickers already downloaded are skipped.
 import requests
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from lxml import html
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))  # make src/ importable
+from sp500 import get_tickers
 
 # 1- config
 HEADERS = {"User-Agent": "Esther Kadosh esther.kadosh@mail.huji.ac.il"}  # polite identification
 OUT_DIR = "raw_data/finviz_news"  # output folder
 RATE = 1.0  # 1 sec between tickers - finviz is commercial, be gentle
-TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM",
-           "V", "WMT", "JNJ", "PG", "MA", "HD", "KO", "PEP", "COST", "MRK",
-           "ABBV", "CRM", "NFLX", "AMD", "INTC", "CSCO", "ORCL"]  # sample 25
 
 # 2- fetch headlines
 def get_headlines(ticker):
@@ -87,17 +88,18 @@ def save_headlines(ticker):
 # final- run
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
+    tickers = get_tickers()
 
-    for i, ticker in enumerate(TICKERS):
+    for i, ticker in enumerate(tickers):
         path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
         if os.path.exists(path):  # resume - skip already-downloaded tickers
-            print(f"  {i+1}/{len(TICKERS)}  {ticker}  already done, skipped")
+            print(f"  {i+1}/{len(tickers)}  {ticker}  already done, skipped")
             continue
         try:
             saved = save_headlines(ticker)
-            print(f"  {i+1}/{len(TICKERS)}  {ticker}  saved {saved} headlines")
-        except Exception as e:  # don't let one bad ticker kill the whole run
-            print(f"  {i+1}/{len(TICKERS)}  {ticker}  error: {e}")
+            print(f"  {i+1}/{len(tickers)}  {ticker}  saved {saved} headlines")
+        except Exception as e:  # don't let one bad ticker kill the run
+            print(f"  {i+1}/{len(tickers)}  {ticker}  error: {e}")
         time.sleep(RATE)  # politeness between tickers
 
     print("done.")

@@ -1,7 +1,7 @@
 # 1- edgar_scraper.py
 """
 edgar_scraper.py
-fetches all 2026 8-K filings (official event reports) for a list of tickers
+fetches all 2026 8-K filings (official event reports) for the s&p 500
 from sec edgar, and saves each ticker's filings + body text to its own jsonl file.
 resumable: tickers already downloaded are skipped.
 """
@@ -10,14 +10,15 @@ import requests
 import time
 import json
 import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))  # make src/ importable
+from sp500 import get_tickers
 
 # 1- config
 HEADERS = {"User-Agent": "Esther Kadosh esther.kadosh@mail.huji.ac.il"}  # required by sec
 RATE = 0.2  # =5 requests/sec
 OUT_DIR = "raw_data/edgar_filings"  # output folder
-TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "JPM",
-           "V", "WMT", "JNJ", "PG", "MA", "HD", "KO", "PEP", "COST", "MRK",
-           "ABBV", "CRM", "NFLX", "AMD", "INTC", "CSCO", "ORCL"]  # sample 25
 
 # 2- load ticker->cik map once
 def load_cik_map():
@@ -134,20 +135,24 @@ def process_ticker(ticker, cik):
 # final- run
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
+    tickers = get_tickers()
     cik_map = load_cik_map()
     time.sleep(RATE)
 
-    for i, ticker in enumerate(TICKERS):
+    for i, ticker in enumerate(tickers):
         path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
         if os.path.exists(path):  # resume - skip already-downloaded tickers
-            print(f"  {i+1}/{len(TICKERS)}  {ticker}  already done, skipped")
+            print(f"  {i+1}/{len(tickers)}  {ticker}  already done, skipped")
             continue
         cik = cik_map.get(ticker)
         if not cik:  # ticker not found in sec map
-            print(f"  {i+1}/{len(TICKERS)}  {ticker}  no cik, skipped")
+            print(f"  {i+1}/{len(tickers)}  {ticker}  no cik, skipped")
             continue
-        saved = process_ticker(ticker, cik)
-        print(f"  {i+1}/{len(TICKERS)}  {ticker}  saved {saved} filings")
+        try:
+            saved = process_ticker(ticker, cik)
+            print(f"  {i+1}/{len(tickers)}  {ticker}  saved {saved} filings")
+        except Exception as e:  # don't let one bad ticker kill the run
+            print(f"  {i+1}/{len(tickers)}  {ticker}  error: {e}")
 
     print("done.")
 
