@@ -19,20 +19,28 @@ from sp500 import get_tickers
 # 1- config
 HEADERS = {"User-Agent": "Esther Kadosh esther.kadosh@mail.huji.ac.il"}  # polite identification
 OUT_DIR = "raw_data/stockanalysis_news"  # output folder
-RATE = 1.0  # 1 sec between tickers - be gentle
+# RATE = 1.0  # 1 sec between tickers - be gentle
+RATE = 3.0  # 3 sec between tickers - stockanalysis is rate-sensitive
 
 # 2- fetch news items
 def get_news(ticker):
     """
     1-downloads the stockanalysis quote page for the ticker.
-    2-parses each news item into title, summary, link, date_title.
-    3-returns the items as a list of dicts.
+    2-on 429 (too many requests) waits and retries up to 3 times.
+    3-parses each news item into title, summary, link, date_title.
     """
     url = f"https://stockanalysis.com/stocks/{ticker}/"
-    r = requests.get(url, headers=HEADERS)
-    r.raise_for_status()
-    tree = html.fromstring(r.text)
+    for attempt in range(3):
+        r = requests.get(url, headers=HEADERS)
+        if r.status_code == 429:  # rate-limited - back off and retry
+            time.sleep(30 * (attempt + 1))
+            continue
+        r.raise_for_status()
+        break
+    else:
+        raise RuntimeError("429 after retries")
 
+    tree = html.fromstring(r.text)
     items = []
     for node in tree.xpath('//div[contains(@class,"grid-cols-news")]'):
         title_el = node.xpath('.//h3/a')  # headline anchor
@@ -42,7 +50,7 @@ def get_news(ticker):
         link = title_el[0].get("href")
         summary_el = node.xpath('.//p')  # summary text
         summary = summary_el[0].text_content().strip() if summary_el else ""
-        date_el = node.xpath('.//div[@title]')  # full date sits in the title attr
+        date_el = node.xpath('.//div[@title]')  # full date in title attr
         date_raw = date_el[0].get("title") if date_el else ""
         items.append({"title": title, "summary": summary, "link": link, "date_raw": date_raw})
     return items
