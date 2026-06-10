@@ -67,18 +67,25 @@ def parse_date(date_text, last_date):
 def save_headlines(ticker):
     """
     1-fetches the ticker headlines and normalizes their dates.
-    2-keeps only 2026 headlines (project window).
-    3-writes each as one json line to the ticker's file. returns count saved.
+    2-appends only headlines not already saved (dedup by link).
+    3-returns how many new headlines were added.
     """
-    rows = get_headlines(ticker)
     path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
 
+    seen = set()  # links already saved
+    if os.path.exists(path):
+        for line in open(path, encoding="utf-8"):
+            seen.add(json.loads(line).get("link"))
+
+    rows = get_headlines(ticker)
     last_date = None
     saved = 0
-    with open(path, "w", encoding="utf-8", buffering=1) as f:  # line-buffered
+    with open(path, "a", encoding="utf-8", buffering=1) as f:  # append
         for date_text, title, link in rows:
             iso, last_date = parse_date(date_text, last_date)
             if not iso or iso < "2026-01-01":  # 2026 only
+                continue
+            if link in seen:  # skip already saved
                 continue
             rec = {"ticker": ticker, "date": iso, "title": title, "link": link}
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -91,16 +98,12 @@ def main():
     tickers = get_tickers()
 
     for i, ticker in enumerate(tickers):
-        path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
-        if os.path.exists(path):  # resume - skip already-downloaded tickers
-            print(f"  {i+1}/{len(tickers)}  {ticker}  already done, skipped")
-            continue
         try:
             saved = save_headlines(ticker)
-            print(f"  {i+1}/{len(tickers)}  {ticker}  saved {saved} headlines")
-        except Exception as e:  # don't let one bad ticker kill the run
+            print(f"  {i+1}/{len(tickers)}  {ticker}  +{saved} new")
+        except Exception as e:
             print(f"  {i+1}/{len(tickers)}  {ticker}  error: {e}")
-        time.sleep(RATE)  # politeness between tickers
+        time.sleep(RATE)
 
     print("done.")
 

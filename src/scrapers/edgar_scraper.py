@@ -112,20 +112,28 @@ def fetch_body(url):
 def process_ticker(ticker, cik):
     """
     1-fetches the ticker's 2026 8-K filings and their body text.
-    2-writes them to the ticker's own jsonl file (skips empty bodies).
-    3-returns how many filings were saved.
+    2-appends only filings not already saved (dedup by accession).
+    3-returns how many new filings were added.
     """
+    path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
+
+    seen = set()  # accessions already saved
+    if os.path.exists(path):
+        for line in open(path, encoding="utf-8"):
+            seen.add(json.loads(line).get("accession"))
+
     data = get_filings(cik)
     time.sleep(RATE)
     records = extract_8k(data, cik, ticker)
 
-    path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
     saved = 0
-    with open(path, "w", encoding="utf-8", buffering=1) as f:  # line-buffered
+    with open(path, "a", encoding="utf-8", buffering=1) as f:  # append, not overwrite
         for rec in records:
+            if rec["accession"] in seen:  # skip already saved
+                continue
             text = fetch_body(rec["url"])
-            time.sleep(RATE)  # politeness between downloads
-            if not text:  # skip filings with no extractable text
+            time.sleep(RATE)
+            if not text:
                 continue
             rec["body"] = text
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -140,18 +148,14 @@ def main():
     time.sleep(RATE)
 
     for i, ticker in enumerate(tickers):
-        path = os.path.join(OUT_DIR, f"{ticker}.jsonl")
-        if os.path.exists(path):  # resume - skip already-downloaded tickers
-            print(f"  {i+1}/{len(tickers)}  {ticker}  already done, skipped")
-            continue
         cik = cik_map.get(ticker)
         if not cik:  # ticker not found in sec map
             print(f"  {i+1}/{len(tickers)}  {ticker}  no cik, skipped")
             continue
         try:
             saved = process_ticker(ticker, cik)
-            print(f"  {i+1}/{len(tickers)}  {ticker}  saved {saved} filings")
-        except Exception as e:  # don't let one bad ticker kill the run
+            print(f"  {i+1}/{len(tickers)}  {ticker}  +{saved} new")
+        except Exception as e:
             print(f"  {i+1}/{len(tickers)}  {ticker}  error: {e}")
 
     print("done.")
