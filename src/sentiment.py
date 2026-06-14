@@ -12,7 +12,8 @@ import nltk
 from transformers import pipeline
 
 # 1- config
-IN = "raw_data/merged.jsonl"  # unified table
+# IN = "raw_data/merged.jsonl"  # unified table
+IN = "raw_data/merged_clean.jsonl"  # cleaned table
 OUT = "raw_data/sentiment.jsonl"  # per-article scores
 MODEL = "yiyanghkust/finbert-tone"
 POLARITY = {"Positive": 1, "Negative": -1, "Neutral": 0}

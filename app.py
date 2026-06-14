@@ -100,20 +100,36 @@ def build_ranking(method, min_articles):
 # 6- professional chart
 def pro_chart(ticker, tsig):
     px = load_prices(ticker, tsig["date"].min(), tsig["date"].max())
-    fig, ax1 = plt.subplots(figsize=(3.6, 1.9))
+    fig, ax1 = plt.subplots(figsize=(3.8, 2.3))
     fig.patch.set_facecolor("#0e1117")
     ax1.set_facecolor("#0e1117")
+
+    # price line (left axis)
     if not px.empty:
-        ax1.plot(px.index, px["Close"], color="white", linewidth=1.1)
+        ax1.plot(px.index, px["Close"], color="white", linewidth=1.1, label="Price")
+    ax1.set_ylabel("Price ($)", color="white", fontsize=7)
+    ax1.tick_params(axis="y", colors="white", labelsize=6)
+
+    # sentiment bars (right axis)
     ax2 = ax1.twinx()
-    colors = ["#26a69a" if v >= 0 else "#ef5350" for v in tsig["polarity"]]  # green up / red down
+    colors = ["#26a69a" if v >= 0 else "#ef5350" for v in tsig["polarity"]]
     ax2.bar(tsig["date"], tsig["polarity"], width=1.2, alpha=0.8, color=colors)
     ax2.axhline(0, color="gray", linewidth=0.7)  # zero line
     ax2.set_ylim(-1.1, 1.1)
-    ax1.set_xticks([]); ax1.set_yticks([]); ax2.set_yticks([])
-    for s in ax1.spines.values(): s.set_visible(False)
-    for s in ax2.spines.values(): s.set_visible(False)
-    fig.tight_layout(pad=0.2)
+    ax2.set_ylabel("Sentiment", color="white", fontsize=7)
+    ax2.tick_params(axis="y", colors="white", labelsize=6)
+
+    # x axis: show month ticks
+    ax1.tick_params(axis="x", colors="white", labelsize=6, rotation=0)
+    import matplotlib.dates as mdates
+    ax1.xaxis.set_major_locator(mdates.MonthLocator())
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b"))  # Jan, Feb...
+
+    ax1.set_title(f"{ticker} · Price (white) vs News Sentiment (bars) · 2026",
+                  color="white", fontsize=6.5)
+    for s in ax1.spines.values(): s.set_color("#333")
+    for s in ax2.spines.values(): s.set_color("#333")
+    fig.tight_layout(pad=0.3)
     return fig
 
 # 7- drivers with links
@@ -143,11 +159,14 @@ def render_grid(rank_df, signals, articles, n_show):
                 tsig = signals[signals["ticker"] == row["ticker"]].sort_values("date")
                 color = "green" if row["score"] > 0 else "red"
                 rank_i = rows.index(row) + 1
-                st.markdown(f"**#{rank_i} {row['ticker']}**  :{color}[{row['score']:+.2f}]")
-                st.caption(f"{row['last_date']} · {row['total_articles']} articles · {row['recent_events']}")
-                st.caption(f"confidence {row['conf']}/100 ({row['conf_label']})")
+                st.markdown(f"**#{rank_i} · {row['ticker']}**")
+                st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]")
+                st.caption(f"Last news: {row['last_date']}")
+                st.caption(f"Total articles: {row['total_articles']}")
+                st.caption(f"Recent events: {row['recent_events']}")
+                st.caption(f"Data confidence: {row['conf']}/100 ({row['conf_label']})")
                 st.pyplot(pro_chart(row["ticker"], tsig))
-                with st.expander("why this signal?"):
+                with st.expander("Why this signal? (top driving news)"):
                     show_drivers(row["ticker"], articles, tsig)
 
 # final- main

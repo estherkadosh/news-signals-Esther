@@ -8,6 +8,7 @@ this table feeds the backtest and the app.
 
 import json
 import pandas as pd
+import numpy as np
 
 # 1- config
 SENT = "raw_data/sentiment.jsonl"  # per-article polarity
@@ -33,11 +34,21 @@ def main():
     df["events"] = df["events"].apply(lambda x: x if isinstance(x, list) else [])
 
     # aggregate per ticker per day
+    weights = {"yahoo": 3.0, "stockanalysis": 3.0, "nasdaq": 2.0,
+               "finviz": 1.0, "edgar": 0.5}  # trust full-body sources more
+
     def agg(g):
         all_events = [e for lst in g["events"] for e in lst]
+        w = g["source"].map(weights).fillna(1.0)  # source-quality weight
+        wmean = np.average(g["polarity"], weights=w) if w.sum() else 0
+        n_sources = g["source"].nunique()  # how many distinct sources agree
+        sharpness = g["polarity"].abs().mean()  # how decisive the sentiment is
+        confidence = n_sources * (0.5 + sharpness)  # more sources + sharper = more confident
         return pd.Series({
-            "polarity": g["polarity"].mean(),
+            "polarity": wmean,
             "n_articles": len(g),
+            "n_sources": n_sources,
+            "confidence": round(confidence, 3),
             "events": ",".join(sorted(set(all_events))),
         })
 

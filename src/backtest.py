@@ -30,7 +30,7 @@ def fetch_returns(tickers, start, end):
     next-day return per ticker-day from adjusted close.
     """
     px = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)["Close"]
-    rets = px.pct_change().shift(-1).stack().reset_index()
+    rets = px.pct_change().shift(-1).stack().reset_index()  # next-day return aligned to today
     rets.columns = ["date", "ticker", "fwd_ret"]
     return rets
 
@@ -45,6 +45,7 @@ def main():
     df = sig.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
 
     # each day: long top quintile, short bottom quintile by polarity
+    # each day: long top quintile, short bottom quintile by polarity
     daily_spread = []
     for date, g in df.groupby("date"):
         if len(g) < 10:  # need enough names that day
@@ -52,7 +53,10 @@ def main():
         hi = g[g["polarity"] >= g["polarity"].quantile(1 - DECILE)]
         lo = g[g["polarity"] <= g["polarity"].quantile(DECILE)]
         if len(hi) and len(lo):
-            daily_spread.append(hi["fwd_ret"].mean() - lo["fwd_ret"].mean())
+            # weight each side by confidence (more sources + sharper sentiment)
+            hi_ret = np.average(hi["fwd_ret"], weights=hi["confidence"]) if "confidence" in hi and hi["confidence"].sum() else hi["fwd_ret"].mean()
+            lo_ret = np.average(lo["fwd_ret"], weights=lo["confidence"]) if "confidence" in lo and lo["confidence"].sum() else lo["fwd_ret"].mean()
+            daily_spread.append(hi_ret - lo_ret)
 
     s = pd.Series(daily_spread)
     mean = s.mean()
