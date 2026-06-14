@@ -78,22 +78,29 @@ def confidence(g):
 
 # 5- build ranking
 @st.cache_data
-def build_ranking(method, min_articles):
+def build_ranking(method, min_articles, min_sources):
     sig = load_signals()
     rows = []
     for ticker, g in sig.groupby("ticker"):
         total = int(g["n_articles"].sum())
         if total < min_articles:
             continue
-        # recent events only - last 3 days that had any tag
+        avg_sources = g["n_sources"].mean() if "n_sources" in g else 1  # coverage breadth
+        if avg_sources < min_sources:  # coverage filter - signal works on covered names
+            continue
         recent = g.sort_values("date").tail(5)
         rec_ev = []
         for e in recent["events"].dropna():
             rec_ev += [x for x in str(e).split(",") if x]
-        conf, conf_label = confidence(g)
+        if "confidence" in g and g["confidence"].max() > 0:  # use real confidence column
+            conf = int(min(g["confidence"].mean() / g["confidence"].max() * 100, 100))
+        else:
+            conf = 50
+        conf_label = "high" if conf >= 66 else "medium" if conf >= 40 else "low"
         rows.append({"ticker": ticker, "score": round(score_ticker(g, method), 3),
                      "total_articles": total, "last_date": g["date"].max().strftime("%Y-%m-%d"),
                      "recent_events": ",".join(sorted(set(rec_ev))[:3]) or "—",
+                     "avg_sources": round(avg_sources, 1),
                      "conf": conf, "conf_label": conf_label})
     return pd.DataFrame(rows).sort_values("score", ascending=False)
 
@@ -163,6 +170,7 @@ def render_grid(rank_df, signals, articles, n_show):
                 st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]")
                 st.caption(f"Last news: {row['last_date']}")
                 st.caption(f"Total articles: {row['total_articles']}")
+                st.caption(f"Avg sources/day: {row['avg_sources']}")
                 st.caption(f"Recent events: {row['recent_events']}")
                 st.caption(f"Data confidence: {row['conf']}/100 ({row['conf_label']})")
                 st.pyplot(pro_chart(row["ticker"], tsig))
@@ -183,29 +191,30 @@ with st.expander("⚠ limitations — read before trusting any signal"):
 consistency, not a p-value. *Example:* a ticker with 3 articles can still show a strong score —
 trust it less.
 
-**Thin sample.** Most tickers have ~10–15 news-days in 2026; the backtest spans ~108 days,
-t-stat ≈ 0.70 (not significant). *Example:* a +0.94 long rank is suggestive, not proven.
+**Thin sample.** Most tickers have ~10–15 news-days in 2026; the backtest spans ~111 days,
+t-stat ≈ 0.85 (not significant; needs ~2.0). *Example:* a +0.94 long rank is suggestive, not proven.
 
 **Source window bias.** Finviz/Yahoo/NASDAQ expose only ~2 months back, so recent days are
 over-represented vs Jan–Mar. *Example:* May–June drives most scores.
 
-**No look-ahead control here.** This view uses same-day sentiment; production use needs
-next-open alignment. **Not investment advice.**
+**Signal works mainly on covered names.** Sentiment predicts next-day returns for
+heavily-covered stocks (t-stat ~1.2) but not thinly-covered ones. Returns are next-day
+(no look-ahead). **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
 
 signals = load_signals()
 articles = load_articles()
-c1, c2, c3, c4 = st.columns([2, 2, 2, 3])
+c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
 method = c1.selectbox("Rank by", ["decay-weighted", "7-day mean", "last day"], index=0)
 min_articles = c2.slider("Min articles", 1, 50, 5)
-n_show = c3.slider("Show per list", 4, 100, 20)
+min_sources = c3.slider("Min sources/day", 1.0, 5.0, 1.0, 0.5)  # coverage filter
+n_show = c4.slider("Show per list", 4, 100, 20)
 
-rank = build_ranking(method, min_articles)
+rank = build_ranking(method, min_articles, min_sources)
 longs = rank[rank["score"] > 0]
 shorts = rank[rank["score"] < 0].sort_values("score")
-c4.markdown(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short] · "
-            f"5 sources · FinBERT + events")
+c5.markdown(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short]")
 
 st.divider()
 st.header(":green[LONG — buy candidates]  (most to least recommended)")
