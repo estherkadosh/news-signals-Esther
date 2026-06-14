@@ -35,15 +35,17 @@ def main():
 
     # aggregate per ticker per day
     weights = {"yahoo": 3.0, "stockanalysis": 3.0, "nasdaq": 2.0,
-               "finviz": 1.0, "edgar": 0.2}  # trust full-body sources more
+               "finviz": 1.0, "edgar": 1.0}  # edgar back to fair weight
 
     def agg(g):
         all_events = [e for lst in g["events"] for e in lst]
-        w = g["source"].map(weights).fillna(1.0)  # source-quality weight
+        src_w = g["source"].map(weights).fillna(1.0)  # source-quality weight
+        strength_w = g["polarity"].abs() + 0.1  # neutral articles get near-zero weight
+        w = src_w * strength_w  # combine: trusted source AND decisive sentiment
         wmean = np.average(g["polarity"], weights=w) if w.sum() else 0
-        n_sources = g["source"].nunique()  # how many distinct sources agree
-        sharpness = g["polarity"].abs().mean()  # how decisive the sentiment is
-        confidence = n_sources * (0.5 + sharpness)  # more sources + sharper = more confident
+        n_sources = g["source"].nunique()
+        sharpness = g["polarity"].abs().mean()
+        confidence = n_sources * (0.5 + sharpness)
         return pd.Series({
             "polarity": wmean,
             "n_articles": len(g),
