@@ -232,9 +232,10 @@ so mid-year index changes aren't tracked.
 Universe is the S&P 500 at one snapshot, plus MRVL and SPCX added manually
 (both newly index-eligible in 2026); prices via Yahoo Finance cover both NYSE and NASDAQ listings.
 
-**Newly-listed stocks.** A ticker appears once it has enough articles, but its price line only
-covers days it has actually traded. *Example:* SPCX (SpaceX) began trading 12 Jun 2026, so it
-shows sentiment but almost no price history — too short to backtest or to trust the signal.
+**Newly-listed stocks.** A ticker appears once it has enough articles, but its price line needs
+at least two trading days to draw. *Example:* SPCX (SpaceX) began trading 12 Jun 2026 — only one
+trading day so far — so it shows sentiment but no price line yet, and is far too short to backtest.
+
 **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
