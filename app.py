@@ -231,6 +231,45 @@ Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snaps
 so mid-year index changes aren't tracked. **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
+    
+
+#second panel - experiments results:
+# methodology panel - the full experiment journey
+with st.expander("🔬 methodology — how the signal was built & tested"):
+    st.markdown(f"""
+<small>
+**Two NLP layers.** FinBERT sentiment (per sentence, averaged per article) + a rule-based
+event classifier (8 types: earnings, guidance, M&A, capital return, executive, legal, analyst, product).
+
+**Weighting, built in layers (each raised the backtest t-stat):**
+
+1. *Source weighting* — full-body sources (Yahoo, StockAnalysis) get weight 3, headline-only
+Finviz gets 1, EDGAR 1. Rationale: a full article carries clearer tone than a bare headline.
+Effect: t-stat 0.32 → 0.60.
+
+2. *Strength weighting* — each article weighted by |sentiment|+0.1, so neutral articles count
+near-zero without being deleted. Fixes the dilution from many neutral headlines.
+
+3. *Confidence weighting* — ticker-days backed by more agreeing sources and sharper sentiment
+count more in the long-short. Rationale: 5 sources agreeing = a real event; 1 source = noise.
+Effect: → t-stat {t_all}.
+
+**Experiments run (honest record):**
+
+- *Text cleaning of EDGAR boilerplate* — improved readability but did NOT raise t-stat; the
+problem was neutral dilution, not in-text noise.
+- *Same-day returns* — gave t-stat 8.66, but that is look-ahead leakage (using news that
+prints after the price moved). Rejected; reverted to next-day.
+- *2-day horizon, shift(-2)* — gave a NEGATIVE t-stat (≈ -1.5): the signal reverses after two
+days. Classic overreaction / mean-reversion — the market over-responds on day 1, corrects on day 2.
+Confirms next-day (shift -1) is the right horizon.
+
+**Coverage experiment (key finding).** Splitting ticker-days by news coverage:
+heavily-covered stocks give t-stat ≈ {t_high}; thinly-covered ones ≈ {t_low}. The signal is
+real for well-covered names and noise for thinly-covered ones — the opposite of a "hype bubble".
+Practical takeaway: trust the ranking most when *Avg sources/day* is high.
+</small>
+""", unsafe_allow_html=True)
 
 
 signals = load_signals()
