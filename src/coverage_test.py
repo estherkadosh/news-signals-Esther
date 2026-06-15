@@ -1,11 +1,10 @@
 # 1- coverage_test.py
 """
 coverage_test.py
-two diagnostics for the demo:
-A- compares t-stat and sharpe across each weighting scheme we tried.
-B- splits high vs low coverage to show where the signal lives.
-uses the exact same weights and >=2 article filter as build_signals + backtest,
-so the numbers line up with the production pipeline.
+two diagnostics for the demo, using the EXACT backtest logic (reads signals.csv,
+confidence-weighted long-short), so numbers match backtest.py perfectly:
+A- effect of weighting schemes (raw signals vs production signals).
+B- where the signal lives: high vs low coverage.
 """
 
 import json
@@ -13,125 +12,107 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-# 1- config (same source weights as build_signals.py)
-SENT = "raw_data/sentiment.jsonl"
+# 1- config (identical to backtest.py)
+SIGNALS = "raw_data/signals.csv"   # production signals (source x strength weighted)
+SENT = "raw_data/sentiment.jsonl"  # raw per-article, for the 'raw' baseline
+MIN_ARTICLES = 2
 DECILE = 0.2
-MIN_ARTICLES = 2  # same filter as backtest.py
-SOURCE_W = {"yahoo": 3.0, "stockanalysis": 3.0, "nasdaq": 2.0, "finviz": 1.0, "edgar": 1.0}
 
-# 2- load per-article sentiment
-def load():
-    """
-    reads per-article sentiment with source kept.
-    """
-    df = pd.DataFrame(json.loads(l) for l in open(SENT, encoding="utf-8"))
-    df["date"] = pd.to_datetime(df["date"])
-    return df
-
-# 3- next-day returns
-def load_returns(tickers, start, end):
+# 2- fetch returns (identical to backtest.py)
+def fetch_returns(tickers, start, end):
     px = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)["Close"]
     rets = px.pct_change().shift(-1).stack().reset_index()
     rets.columns = ["date", "ticker", "fwd_ret"]
     rets["date"] = pd.to_datetime(rets["date"])
     return rets
 
-# 4- aggregate per ticker-day under a chosen weighting scheme
-def aggregate(df, scheme):
+# 3- the exact backtest from backtest.py, as a function
+def run_backtest(df, use_confidence):
     """
-    builds per-ticker-day polarity under one scheme:
-    'raw'        = plain mean
-    'source'     = source-quality weighted
-    'strength'   = source x sentiment-strength weighted (production scheme)
-    filters to >=2 articles per ticker-day (same as backtest).
+    df has polarity, fwd_ret, and (optionally) confidence per ticker-day.
+    long top quintile, short bottom, confidence-weighted if available.
+    returns t-stat, sharpe, hit, days - identical math to backtest.py.
     """
-    rows = []
-    for (tk, dt), g in df.groupby(["ticker", "date"]):
-        if scheme == "raw":
-            pol = g["polarity"].mean()
-        elif scheme == "source":
-            w = g["source"].map(SOURCE_W).fillna(1.0)
-            pol = np.average(g["polarity"], weights=w) if w.sum() else 0
-        else:  # strength = source x sentiment-strength (matches build_signals)
-            sw = g["source"].map(SOURCE_W).fillna(1.0)
-            stw = g["polarity"].abs() + 0.1
-            w = sw * stw
-            pol = np.average(g["polarity"], weights=w) if w.sum() else 0
-        rows.append({"ticker": tk, "date": dt, "polarity": pol,
-                     "n_articles": len(g), "n_sources": g["source"].nunique()})
-    out = pd.DataFrame(rows)
-    out = out[out["n_articles"] >= MIN_ARTICLES]  # same filter as backtest
-    return out
-
-# 5- backtest a per-ticker-day table
-def backtest(daily, rets):
-    """
-    long-short top/bottom quintile by polarity. returns t-stat, sharpe, hit, days.
-    """
-    m = daily.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
-    spreads = []
-    for _, g in m.groupby("date"):
+    daily_spread = []
+    for date, g in df.groupby("date"):
         if len(g) < 10:
             continue
         hi = g[g["polarity"] >= g["polarity"].quantile(1 - DECILE)]
         lo = g[g["polarity"] <= g["polarity"].quantile(DECILE)]
         if len(hi) and len(lo):
-            spreads.append(hi["fwd_ret"].mean() - lo["fwd_ret"].mean())
-    s = pd.Series(spreads)
+            if use_confidence and "confidence" in hi and hi["confidence"].sum():
+                hi_ret = np.average(hi["fwd_ret"], weights=hi["confidence"])
+                lo_ret = np.average(lo["fwd_ret"], weights=lo["confidence"])
+            else:
+                hi_ret = hi["fwd_ret"].mean()
+                lo_ret = lo["fwd_ret"].mean()
+            daily_spread.append(hi_ret - lo_ret)
+    s = pd.Series(daily_spread)
     if len(s) < 2:
         return None
     tstat = s.mean() / (s.std() / np.sqrt(len(s)))
     sharpe = (s.mean() / s.std()) * np.sqrt(252)
-    return {"t_stat": round(tstat, 2), "sharpe": round(sharpe, 2),
+    return {"t": round(tstat, 2), "sharpe": round(sharpe, 2),
             "hit": round((s > 0).mean() * 100, 1), "days": len(s)}
 
-# 6- coverage split on a per-ticker-day table
-def coverage_split(daily, rets):
+# 4- build a raw-mean baseline table from sentiment.jsonl
+def raw_signals():
     """
-    splits ticker-days by median sources and backtests each group.
+    plain per-ticker-day mean polarity (no weighting), >=2 articles.
+    this is the 'before any weighting' baseline.
     """
-    m = daily.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
-    cutoff = m["n_sources"].median()
-    print(f"median sources/day = {cutoff}")
-    print(f"{'group':16s}{'t-stat':>8}{'sharpe':>8}{'hit%':>8}{'days':>7}")
-    for label, sub in [("ALL", m), ("HIGH coverage", m[m["n_sources"] > cutoff]),
-                       ("LOW coverage", m[m["n_sources"] <= cutoff])]:
-        spreads = []
-        for _, g in sub.groupby("date"):
-            if len(g) < 6:
-                continue
-            hi = g[g["polarity"] >= g["polarity"].quantile(1 - DECILE)]
-            lo = g[g["polarity"] <= g["polarity"].quantile(DECILE)]
-            if len(hi) and len(lo):
-                spreads.append(hi["fwd_ret"].mean() - lo["fwd_ret"].mean())
-        s = pd.Series(spreads)
-        if len(s) >= 2:
-            t = s.mean() / (s.std() / np.sqrt(len(s)))
-            sh = (s.mean() / s.std()) * np.sqrt(252)
-            print(f"{label:16s}{t:>8.2f}{sh:>8.2f}{(s>0).mean()*100:>8.1f}{len(s):>7}")
+    df = pd.DataFrame(json.loads(l) for l in open(SENT, encoding="utf-8"))
+    df = df[df["n_sents"] > 0]
+    g = df.groupby(["ticker", "date"]).agg(
+        polarity=("polarity", "mean"), n_articles=("polarity", "size"),
+        n_sources=("source", "nunique")).reset_index()
+    g = g[g["n_articles"] >= MIN_ARTICLES]
+    g["date"] = pd.to_datetime(g["date"])
+    return g
+
+# 5- load production signals (already weighted, from build_signals)
+def prod_signals():
+    df = pd.read_csv(SIGNALS)
+    df = df[df["n_articles"] >= MIN_ARTICLES].copy()
+    df["date"] = pd.to_datetime(df["date"])
+    return df
 
 # final- run
 def main():
-    df = load()
-    tickers = df["ticker"].unique().tolist()
-    rets = load_returns(tickers, df["date"].min(), df["date"].max() + pd.Timedelta(days=3))
+    prod = prod_signals()
+    raw = raw_signals()
+    tickers = prod["ticker"].unique().tolist()
+    rets = fetch_returns(tickers, prod["date"].min(), prod["date"].max() + pd.Timedelta(days=3))
 
-    # A- weighting schemes
+    # A- raw baseline vs production (with confidence weighting)
     print("=" * 64)
-    print("A- effect of each weighting scheme (next-day, >=2 articles)")
+    print("A- raw mean signal vs full production signal")
     print("=" * 64)
-    print(f"{'scheme':16s}{'t-stat':>8}{'sharpe':>8}{'hit%':>8}{'days':>7}")
-    for scheme, label in [("raw", "raw mean"), ("source", "+ source wt"),
-                          ("strength", "+ strength wt")]:
-        res = backtest(aggregate(df, scheme), rets)
-        if res:
-            print(f"{label:16s}{res['t_stat']:>8}{res['sharpe']:>8}{res['hit']:>8}{res['days']:>7}")
+    print(f"{'scheme':22s}{'t-stat':>8}{'sharpe':>8}{'hit%':>8}{'days':>7}")
 
-    # B- coverage split (production scheme)
+    raw_m = raw.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
+    res = run_backtest(raw_m, use_confidence=False)
+    if res: print(f"{'raw mean (no weights)':22s}{res['t']:>8}{res['sharpe']:>8}{res['hit']:>8}{res['days']:>7}")
+
+    prod_m = prod.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
+    res = run_backtest(prod_m, use_confidence=False)
+    if res: print(f"{'+ source/strength wt':22s}{res['t']:>8}{res['sharpe']:>8}{res['hit']:>8}{res['days']:>7}")
+
+    res = run_backtest(prod_m, use_confidence=True)
+    if res: print(f"{'+ confidence wt (FULL)':22s}{res['t']:>8}{res['sharpe']:>8}{res['hit']:>8}{res['days']:>7}")
+
+    # B- coverage split on full production signal
     print("\n" + "=" * 64)
-    print("B- where the signal lives: high vs low coverage (strength scheme)")
+    print("B- where the signal lives: high vs low coverage (full signal)")
     print("=" * 64)
-    coverage_split(aggregate(df, "strength"), rets)
+    cutoff = prod_m["n_sources"].median()
+    print(f"median sources/day = {cutoff}")
+    print(f"{'group':16s}{'t-stat':>8}{'sharpe':>8}{'hit%':>8}{'days':>7}")
+    for label, sub in [("ALL", prod_m), ("HIGH coverage", prod_m[prod_m["n_sources"] > cutoff]),
+                       ("LOW coverage", prod_m[prod_m["n_sources"] <= cutoff])]:
+        res = run_backtest(sub, use_confidence=True)
+        if res:
+            print(f"{label:16s}{res['t']:>8}{res['sharpe']:>8}{res['hit']:>8}{res['days']:>7}")
 
 if __name__ == "__main__":
     main()
