@@ -92,11 +92,16 @@ def build_ranking(method, min_articles, min_sources):
         rec_ev = []
         for e in recent["events"].dropna():
             rec_ev += [x for x in str(e).split(",") if x]
-        if "confidence" in g and g["confidence"].max() > 0:  # use real confidence column
-            conf = int(min(g["confidence"].mean() / g["confidence"].max() * 100, 100))
-        else:
-            conf = 50
-        conf_label = "high" if conf >= 66 else "medium" if conf >= 40 else "low"
+        # if "confidence" in g and g["confidence"].max() > 0:  # use real confidence column
+        #     conf = int(min(g["confidence"].mean() / g["confidence"].max() * 100, 100))
+        # else:
+        #     conf = 50
+        # conf_label = "high" if conf >= 66 else "medium" if conf >= 40 else "low"
+        nonzero = (g["polarity"].abs() > 0).mean()  # share of decisive (non-neutral) days
+        breadth = min(g["n_sources"].mean() / 3, 1) if "n_sources" in g else 0.5  # source breadth
+        conf = int((nonzero * 0.6 + breadth * 0.4) * 100)  # decisive + broad = confident
+        conf_label = "high" if conf >= 60 else "medium" if conf >= 35 else "low"
+
         rows.append({"ticker": ticker, "score": round(score_ticker(g, method), 3),
                      "total_articles": total, "last_date": g["date"].max().strftime("%Y-%m-%d"),
                      "recent_events": ",".join(sorted(set(rec_ev))[:3]) or "—",
@@ -179,29 +184,54 @@ def render_grid(rank_df, signals, articles, n_show):
 
 # final- main
 st.title("News-Driven Equity Signals · S&P 500 · 2026")
+# 9- load saved backtest stats (instant - no yfinance call)
+@st.cache_data
+def load_stats():
+    try:
+        return json.load(open("raw_data/stats.json", encoding="utf-8"))
+    except Exception:
+        return None
 
-# limitations panel
-with st.expander("⚠ limitations — read before trusting any signal"):
-    st.markdown("""
+# limitations panel - numbers read from saved stats.json
+stats = load_stats()
+t_all = f"{stats['t_all']:.2f}" if stats else "n/a"
+n_days = stats["n_days"] if stats else "n/a"
+t_high = f"{stats['t_high']:.2f}" if stats else "n/a"
+t_low = f"{stats['t_low']:.2f}" if stats else "n/a"
+total_art = f"{stats['total_articles']:,}" if stats else "n/a"
+nonzero_art = f"{stats['nonzero_articles']:,}" if stats else "n/a"
+ticker_days = f"{stats['ticker_days']:,}" if stats else "n/a"
+
+with st.expander("⚠ limitations & methodology — read before trusting any signal"):
+    st.markdown(f"""
 <small>
+**Data.** {total_art} articles collected from 5 sources (SEC EDGAR, Finviz, StockAnalysis,
+Yahoo, NASDAQ). Of these, {nonzero_art} carry non-neutral sentiment; the backtest uses
+{ticker_days} ticker-days with ≥2 articles.
+
+**How the signal is weighted.** Three layers: *source weighting* (trust full-body sources like
+Yahoo over headline-only Finviz), *strength weighting* (neutral articles count near-zero),
+and *confidence weighting* (days with more agreeing sources count more). Each layer raised the
+backtest t-stat (0.32 → 0.60 → {t_all}).
+
 **Sentiment model errors.** FinBERT mislabels short or ambiguous headlines.
 *Example:* "Why Is MRVL Stock Surging?" was tagged negative though the news is positive.
 
-**Confidence is not statistical significance.** The shown confidence reflects data volume and
-consistency, not a p-value. *Example:* a ticker with 3 articles can still show a strong score —
-trust it less.
+**Confidence is not statistical significance.** The card confidence reflects data volume and
+consistency, not a p-value. *Example:* a ticker with few articles can still show a strong score.
 
-**Thin sample.** Most tickers have ~10–15 news-days in 2026; the backtest spans ~111 days,
-t-stat ≈ 0.85 (not significant; needs ~2.0). *Example:* a +0.94 long rank is suggestive, not proven.
+**Thin sample.** The backtest spans ~{n_days} trading days, overall t-stat ≈ {t_all}
+(not significant; ~2.0 would be). Rankings are suggestive, not proven.
 
-**Source window bias.** Finviz/Yahoo/NASDAQ expose only ~2 months back, so recent days are
-over-represented vs Jan–Mar. *Example:* May–June drives most scores.
+**Signal works mainly on covered names.** Heavily-covered stocks give t-stat ≈ {t_high};
+thinly-covered ones ≈ {t_low}. The signal lives in well-covered names.
 
-**Signal works mainly on covered names.** Sentiment predicts next-day returns for
-heavily-covered stocks (t-stat ~1.2) but not thinly-covered ones. Returns are next-day
-(no look-ahead). **Not investment advice.**
+**Other caveats.** Sources expose only ~2 months back (recent days over-represented).
+Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snapshot,
+so mid-year index changes aren't tracked. **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
+
 
 signals = load_signals()
 articles = load_articles()
