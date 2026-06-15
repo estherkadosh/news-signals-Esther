@@ -231,6 +231,10 @@ Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snaps
 so mid-year index changes aren't tracked.
 Universe is the S&P 500 at one snapshot, plus MRVL and SPCX added manually
 (both newly index-eligible in 2026); prices via Yahoo Finance cover both NYSE and NASDAQ listings.
+
+**Newly-listed stocks.** A ticker appears once it has enough articles, but its price line only
+covers days it has actually traded. *Example:* SPCX (SpaceX) began trading 12 Jun 2026, so it
+shows sentiment but almost no price history — too short to backtest or to trust the signal.
 **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
