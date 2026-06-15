@@ -228,7 +228,10 @@ thinly-covered ones ≈ {t_low}. The signal lives in well-covered names.
 
 **Other caveats.** Sources expose only ~2 months back (recent days over-represented).
 Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snapshot,
-so mid-year index changes aren't tracked. **Not investment advice.**
+so mid-year index changes aren't tracked.
+Universe is the S&P 500 at one snapshot, plus MRVL and SPCX added manually
+(both newly index-eligible in 2026); prices via Yahoo Finance cover both NYSE and NASDAQ listings.
+**Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
     
@@ -279,11 +282,23 @@ method = c1.selectbox("Rank by", ["decay-weighted", "7-day mean", "last day"], i
 min_articles = c2.slider("Min articles", 1, 50, 5)
 min_sources = c3.slider("Min sources/day", 1.0, 5.0, 1.0, 0.5)  # coverage filter
 n_show = c4.slider("Show per list", 4, 100, 20)
+search = c5.text_input("🔍 Search ticker", "").strip().upper()  # find one ticker directly
 
 rank = build_ranking(method, min_articles, min_sources)
 longs = rank[rank["score"] > 0]
 shorts = rank[rank["score"] < 0].sort_values("score")
-c5.markdown(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short]")
+c4.markdown(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short]")
+
+# search result - show one ticker's card directly if searched
+if search:
+    hit = rank[rank["ticker"] == search]
+    if len(hit):
+        st.divider()
+        st.subheader(f"🔍 Search result: {search}")
+        render_grid(hit, signals, articles, 1)
+    else:
+        st.warning(f"'{search}' not found in current ranking (check spelling, or lower the Min filters).")
+    st.divider()
 
 st.divider()
 st.header(":green[LONG — buy candidates]  (most to least recommended)")
