@@ -45,7 +45,6 @@ def main():
     df = sig.merge(rets, on=["ticker", "date"], how="inner").dropna(subset=["fwd_ret"])
 
     # each day: long top quintile, short bottom quintile by polarity
-    # each day: long top quintile, short bottom quintile by polarity
     daily_spread = []
     for date, g in df.groupby("date"):
         if len(g) < 10:  # need enough names that day

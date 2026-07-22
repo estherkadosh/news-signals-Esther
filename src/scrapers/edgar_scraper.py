@@ -57,7 +57,8 @@ def extract_8k(data, cik, ticker):
     records = []
     cik_int = int(cik)  # without leading zeros - for url path
     for form, date, acc, doc in zip(forms, dates, accessions, docs):
-        if form == "8-K" and date >= "2026-01-01":  # 2026 only - project window
+        if form == "8-K" and date >= "2024-01-01":  # extended window for deeper history
+        # if form == "8-K" and date >= "2026-01-01":  # 2026 only - project window
             acc_nodash = acc.replace("-", "")  # without dashes - for url path
             url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_nodash}/{doc}"
             records.append({
