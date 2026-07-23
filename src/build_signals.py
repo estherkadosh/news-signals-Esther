@@ -35,7 +35,8 @@ def main():
 
     # aggregate per ticker per day
     weights = {"yahoo": 3.0, "stockanalysis": 3.0, "nasdaq": 2.0,
-               "finviz": 1.0, "edgar": 1.0}  # edgar back to fair weight
+               "finviz": 1.0, "edgar": 1.0,
+               "gdelt": 1.0,}  # edgar back to fair weight
 
     def agg(g):
         all_events = [e for lst in g["events"] for e in lst]

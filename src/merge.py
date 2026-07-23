@@ -16,6 +16,7 @@ SOURCES = {
     "stockanalysis": "raw_data/stockanalysis_news",
     "yahoo": "raw_data/yahoo_news",
     "nasdaq": "raw_data/nasdaq_news",
+    "gdelt": "raw_data/gdelt_news",
 }
 OUT = "raw_data/merged.jsonl"  # unified table
 
