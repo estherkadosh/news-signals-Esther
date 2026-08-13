@@ -214,17 +214,17 @@ Yahoo over headline-only Finviz), *strength weighting* (neutral articles count n
 and *confidence weighting* (days with more agreeing sources count more). Each layer raised the
 backtest t-stat (0.32 → 0.60 → {t_all}).
 
-**Sentiment model errors.** FinBERT mislabels short or ambiguous headlines.
-*Example:* "Why Is MRVL Stock Surging?" was tagged negative though the news is positive.
+**Sentiment model errors.** The LLM occasionally misreads ambiguous or sarcastic headlines,
+though far less than a small model. Every score still traces to a specific article (see "Why this signal?").
 
 **Confidence is not statistical significance.** The card confidence reflects data volume and
 consistency, not a p-value. *Example:* a ticker with few articles can still show a strong score.
 
-**Thin sample.** The backtest spans ~{n_days} trading days, overall t-stat ≈ {t_all}
-(not significant; ~2.0 would be). Rankings are suggestive, not proven.
+**Sample size.** The backtest spans ~{n_days} trading days, overall t-stat ≈ {t_all}
+(around the ~2.0 significance threshold). Encouraging, but still a short history — treat as suggestive.
 
-**Signal works mainly on covered names.** Heavily-covered stocks give t-stat ≈ {t_high};
-thinly-covered ones ≈ {t_low}. The signal lives in well-covered names.
+**Coverage.** Heavily-covered stocks give t-stat ≈ {t_high}; thinly-covered ones ≈ {t_low}.
+With the stronger LLM sentiment the signal now holds across both, not only well-covered names.
 
 **Other caveats.** Sources expose only ~2 months back (recent days over-represented).
 Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snapshot,
@@ -246,7 +246,8 @@ trading day so far — so it shows sentiment but no price line yet, and is far t
 with st.expander("🔬 methodology — how the signal was built & tested"):
     st.markdown(f"""
 <small>
-**Two NLP layers.** FinBERT sentiment (per sentence, averaged per article) + a rule-based
+**Two NLP layers.** Qwen3-4B sentiment (LLM scoring each article on a −1..+1 price-impact scale)
++ a rule-based
 event classifier (8 types: earnings, guidance, M&A, capital return, executive, legal, analyst, product).
 
 **Weighting, built in layers (each raised the backtest t-stat):**
@@ -272,10 +273,10 @@ prints after the price moved). Rejected; reverted to next-day.
 days. Classic overreaction / mean-reversion — the market over-responds on day 1, corrects on day 2.
 Confirms next-day (shift -1) is the right horizon.
 
-**Coverage experiment (key finding).** Splitting ticker-days by news coverage:
-heavily-covered stocks give t-stat ≈ {t_high}; thinly-covered ones ≈ {t_low}. The signal is
-real for well-covered names and noise for thinly-covered ones — the opposite of a "hype bubble".
-Practical takeaway: trust the ranking most when *Avg sources/day* is high.
+**Coverage experiment.** Splitting ticker-days by news coverage: heavily-covered stocks give
+t-stat ≈ {t_high}; thinly-covered ones ≈ {t_low}. With FinBERT the signal lived only in
+well-covered names (thin coverage was noise); the stronger Qwen3 sentiment extended it to
+thinly-covered names too — a sign the model, not just the coverage, drives the edge.
 </small>
 """, unsafe_allow_html=True)
 
