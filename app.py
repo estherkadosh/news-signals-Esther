@@ -273,6 +273,11 @@ prints after the price moved). Rejected; reverted to next-day.
 days. Classic overreaction / mean-reversion — the market over-responds on day 1, corrects on day 2.
 Confirms next-day (shift -1) is the right horizon.
 
+- *FinBERT vs Qwen3-4B (model comparison)* — ran both on the same 131k articles, same backtest.
+With a plain label prompt FinBERT won (t-stat 1.30 vs 0.71); but with a numeric price-impact
+prompt Qwen3 won decisively and significantly (t-stat 2.19 vs 1.41). Same model, only the prompt
+changed — so prompt design mattered more than model size. Qwen3 is now the primary engine.
+
 **Coverage experiment.** Splitting ticker-days by news coverage: heavily-covered stocks give
 t-stat ≈ {t_high}; thinly-covered ones ≈ {t_low}. With FinBERT the signal lived only in
 well-covered names (thin coverage was noise); the stronger Qwen3 sentiment extended it to
