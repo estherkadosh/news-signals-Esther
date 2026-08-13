@@ -162,7 +162,7 @@ def show_drivers(ticker, articles, tsig):
         st.markdown(f":red[{r['polarity']:.2f}] [{r['source']}] {title}")
 
 # 8- render grid
-def render_grid(rank_df, signals, articles, n_show):
+def render_grid(rank_df, signals, articles, n_show, stats):
     rows = rank_df.head(n_show).to_dict("records")
     for i in range(0, len(rows), COLS):
         cols = st.columns(COLS)
@@ -173,6 +173,8 @@ def render_grid(rank_df, signals, articles, n_show):
                 rank_i = rows.index(row) + 1
                 st.markdown(f"**#{rank_i} · {row['ticker']}**")
                 st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]")
+                lean = "leans up" if row["score"] > 0 else "leans down"
+                st.caption(f"Outlook: {lean} · ~{stats['up_rate']:.0f}% up next day · typ. ±{stats['avg_move']:.1f}%" if stats else "")
                 st.caption(f"Last news: {row['last_date']}")
                 st.caption(f"Total articles: {row['total_articles']}")
                 st.caption(f"Avg sources/day: {row['avg_sources']}")
@@ -306,15 +308,15 @@ if search:
     if len(hit):
         st.divider()
         st.subheader(f"🔍 Search result: {search}")
-        render_grid(hit, signals, articles, 1)
+        render_grid(hit, signals, articles, 1, stats)
     else:
         st.warning(f"'{search}' not found in current ranking (check spelling, or lower the Min filters).")
     st.divider()
 
 st.divider()
 st.header(":green[LONG — buy candidates]  (most to least recommended)")
-render_grid(longs, signals, articles, n_show)
+render_grid(longs, signals, articles, n_show, stats)
 
 st.divider()
 st.header(":red[SHORT — sell candidates]  (most to least recommended)")
-render_grid(shorts, signals, articles, n_show)
+render_grid(shorts, signals, articles, n_show, stats)

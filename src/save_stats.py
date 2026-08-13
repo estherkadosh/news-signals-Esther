@@ -39,9 +39,17 @@ t_low, _ = tstat_of(df[df["n_sources"] <= cut])
 total_articles = sum(1 for _ in open("raw_data/merged.jsonl", encoding="utf-8"))  # all collected
 nonzero = sum(1 for l in open("raw_data/sentiment.jsonl", encoding="utf-8") if json.loads(l)["polarity"] != 0)  # with real sentiment
 
+# next-day stats for the long side, to phrase a concrete per-card line
+hi_days = df[df["polarity"] >= df["polarity"].quantile(0.8)]
+up_rate = (hi_days["fwd_ret"] > 0).mean()  # share of top-signal days that rose
+avg_move = hi_days["fwd_ret"].abs().mean()  # typical next-day move size
+
+
 stats = {"t_all": round(t_all, 2), "n_days": n_days,
          "t_high": round(t_high, 2), "t_low": round(t_low, 2),
          "total_articles": total_articles, "nonzero_articles": nonzero,
-         "ticker_days": int((sig["n_articles"] >= 2).sum())}
+         "ticker_days": int((sig["n_articles"] >= 2).sum()),
+         "up_rate": round(up_rate * 100, 0),
+         "avg_move": round(avg_move * 100, 2)}
 json.dump(stats, open("raw_data/stats.json", "w"))
 print("saved:", stats)
