@@ -14,7 +14,8 @@ import yfinance as yf
 # 1- config
 FINBERT = "raw_data/sentiment.jsonl"       # finbert per-article polarity
 # QWEN = "raw_data/qwen_sentiment.jsonl"     # qwen per-article polarity
-QWEN = "raw_data/qwen_sentiment_v2.jsonl"     # qwen v2 (numeric prompt)
+# QWEN = "raw_data/qwen_sentiment_v2.jsonl"     # qwen v2 (numeric prompt)
+QWEN = "raw_data/qwen_sentiment_full.jsonl"     # qwen v2 on the full dataset
 EVENTS = "raw_data/events.jsonl"
 MIN_ARTICLES = 2
 DECILE = 0.2
