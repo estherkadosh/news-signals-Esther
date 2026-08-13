@@ -1,4 +1,15 @@
-﻿raw_data/
+﻿# ignore everything in raw_data by default
+raw_data/*
+raw_data/*/
+
+# but allow the files the deployed app needs
+!raw_data/signals.csv
+!raw_data/sentiment.jsonl
+!raw_data/events.jsonl
+!raw_data/merged_slim.jsonl
+!raw_data/stats.json
+
+# python junk
 __pycache__/
 *.pyc
 .venv/
