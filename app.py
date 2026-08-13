@@ -174,7 +174,8 @@ def render_grid(rank_df, signals, articles, n_show, stats):
                 st.markdown(f"**#{rank_i} · {row['ticker']}**")
                 st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]")
                 lean = "leans up" if row["score"] > 0 else "leans down"
-                st.caption(f"Outlook: {lean} · ~{stats['up_rate']:.0f}% up next day · typ. ±{stats['avg_move']:.1f}%" if stats else "")
+                if stats and "up_rate" in stats:
+                    st.caption(f"Outlook: {lean} · ~{stats['up_rate']:.0f}% up next day · typ. ±{stats['avg_move']:.1f}%")
                 st.caption(f"Last news: {row['last_date']}")
                 st.caption(f"Total articles: {row['total_articles']}")
                 st.caption(f"Avg sources/day: {row['avg_sources']}")
