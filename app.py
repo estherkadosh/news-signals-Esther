@@ -21,7 +21,7 @@ plt.style.use("dark_background")  # professional dark charts
 SIGNALS = "raw_data/signals.csv"
 SENT = "raw_data/sentiment.jsonl"
 EVENTS = "raw_data/events.jsonl"
-MERGED = "raw_data/merged.jsonl"
+MERGED = "raw_data/merged_slim.jsonl"
 COLS = 4
 
 # 2- load data (cached)
