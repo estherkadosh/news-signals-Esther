@@ -1,10 +1,12 @@
 # 1- momentum.py
 """
 momentum.py
-tests whether news sentiment improves a momentum strategy.
-baseline: long top momentum quintile, short bottom, hold one day.
-filtered: drop longs with negative recent sentiment and shorts with positive.
-runs three lookback windows and compares.
+tests whether news sentiment improves a momentum strategy, on the sentiment era only.
+three variants per lookback:
+  A- momentum alone (long top quintile, short bottom, hold one day)
+  B- momentum + news filter (drop longs with negative sentiment, shorts with positive)
+  C- momentum + sentiment blend (rank by a mix of momentum and sentiment)
+restricted to ticker-days that actually have news, so the filter can bite.
 """
 
 import pandas as pd
@@ -15,8 +17,8 @@ import yfinance as yf
 SIGNALS = "raw_data/signals.csv"
 LOOKBACKS = [5, 21, 63]  # week, month, quarter
 DECILE = 0.2
-SENT_WINDOW = 5  # trading days of sentiment used as the filter
-MIN_ARTICLES = 2  # ignore thin ticker-days
+BLEND = 0.5  # weight of sentiment vs momentum in variant C
+MIN_ARTICLES = 2
 
 # 2- load sentiment
 def load_signals():
@@ -28,20 +30,14 @@ def load_signals():
     df["date"] = pd.to_datetime(df["date"])
     return df[["ticker", "date", "polarity"]]
 
-# 3- prices and momentum
+# 3- prices and panel
 def load_prices(tickers, start, end):
-    """
-    1-downloads adjusted closes for the whole universe.
-    2-returns a wide frame indexed by date.
-    """
     px = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)["Close"]
     return px.dropna(axis=1, how="all")
 
 def build_panel(px, lookback):
     """
-    1-momentum = trailing return over the lookback window.
-    2-fwd_ret = next-day return, the thing being predicted.
-    3-returns a long frame of ticker, date, momentum, fwd_ret.
+    momentum = trailing return; fwd_ret = next-day return.
     """
     mom = px.pct_change(lookback)
     fwd = px.pct_change().shift(-1)
@@ -53,60 +49,64 @@ def build_panel(px, lookback):
     out["date"] = pd.to_datetime(out["date"])
     return out
 
-# 4- rolling sentiment per ticker-day
-def rolling_sent(sig, panel):
+# 4- one day's long-short spread
+def day_spread(g, rank_col, use_filter=False):
     """
-    1-for each ticker-day, averages sentiment over the trailing window.
-    2-merges it onto the price panel; missing = no news.
+    long top quintile, short bottom, by rank_col. optional news filter.
     """
-    s = sig.sort_values("date").copy()
-    s["roll"] = (s.groupby("ticker")["polarity"]
-                   .transform(lambda x: x.rolling(SENT_WINDOW, min_periods=1).mean()))
-    return panel.merge(s[["ticker", "date", "roll"]], on=["ticker", "date"], how="left")
+    hi = g[g[rank_col] >= g[rank_col].quantile(1 - DECILE)]
+    lo = g[g[rank_col] <= g[rank_col].quantile(DECILE)]
+    if use_filter:
+        hi = hi[hi["polarity"] >= 0]  # no bad news on longs
+        lo = lo[lo["polarity"] <= 0]  # no good news on shorts
+    if len(hi) >= 3 and len(lo) >= 3:
+        return hi["fwd_ret"].mean() - lo["fwd_ret"].mean()
+    return None
 
-# 5- backtest one variant
-def run(df, label, use_filter):
-    """
-    1-each day sorts by momentum into top/bottom quintiles.
-    2-if filtering, drops longs with negative sentiment and shorts with positive.
-    3-prints t-stat, sharpe, hit rate for the daily long-short spread.
-    """
-    spreads = []
+# 5- backtest a variant
+def run(df, label, rank_col, use_filter=False):
+    sp = []
     for _, g in df.groupby("date"):
-        if len(g) < 20:  # need a real cross-section
+        if len(g) < 15:
             continue
-        hi = g[g["momentum"] >= g["momentum"].quantile(1 - DECILE)]
-        lo = g[g["momentum"] <= g["momentum"].quantile(DECILE)]
-        if use_filter:
-            hi = hi[~(hi["roll"] < 0)]  # keep positive/unknown sentiment on longs
-            lo = lo[~(lo["roll"] > 0)]  # keep negative/unknown sentiment on shorts
-        if len(hi) >= 3 and len(lo) >= 3:
-            spreads.append(hi["fwd_ret"].mean() - lo["fwd_ret"].mean())
-    s = pd.Series(spreads)
+        s = day_spread(g, rank_col, use_filter)
+        if s is not None:
+            sp.append(s)
+    s = pd.Series(sp)
     if len(s) < 2:
-        print(f"{label:28s} not enough days")
+        print(f"{label:34s} not enough days")
         return
     t = s.mean() / (s.std() / np.sqrt(len(s)))
     sh = (s.mean() / s.std()) * np.sqrt(252)
-    print(f"{label:28s} days={len(s):4d}  spread={s.mean()*100:+.4f}%  "
+    print(f"{label:34s} days={len(s):4d}  spread={s.mean()*100:+.4f}%  "
           f"t-stat={t:+.2f}  sharpe={sh:+.2f}  hit={(s>0).mean()*100:.1f}%")
 
 # final- run
 def main():
     sig = load_signals()
     tickers = sorted(sig["ticker"].unique())
-    start = sig["date"].min() - pd.Timedelta(days=120)  # room for the longest lookback
+    start = sig["date"].min() - pd.Timedelta(days=120)
     end = sig["date"].max() + pd.Timedelta(days=3)
     px = load_prices(tickers, start, end)
 
     for lb in LOOKBACKS:
         panel = build_panel(px, lb)
-        panel = panel[panel["date"] >= sig["date"].min()]  # score only the sentiment era
-        merged = rolling_sent(sig, panel)
-        cov = merged["roll"].notna().mean() * 100
-        print(f"\n--- lookback {lb} days  (sentiment covers {cov:.1f}% of rows) ---")
-        run(merged, f"momentum {lb}d alone", use_filter=False)
-        run(merged, f"momentum {lb}d + news filter", use_filter=True)
+        # keep only ticker-days that have news (inner merge on sentiment)
+        merged = panel.merge(sig, on=["ticker", "date"], how="inner")
+        if merged.empty:
+            print(f"\n--- lookback {lb}d: no overlap ---")
+            continue
+        # normalized blend of momentum and sentiment for variant C
+        merged["mom_z"] = merged.groupby("date")["momentum"].transform(
+            lambda x: (x - x.mean()) / (x.std() + 1e-9))
+        merged["sent_z"] = merged.groupby("date")["polarity"].transform(
+            lambda x: (x - x.mean()) / (x.std() + 1e-9))
+        merged["blend"] = (1 - BLEND) * merged["mom_z"] + BLEND * merged["sent_z"]
+
+        print(f"\n--- lookback {lb} days  ({len(merged)} ticker-days with news) ---")
+        run(merged, f"A momentum {lb}d alone", "momentum")
+        run(merged, f"B momentum {lb}d + news filter", "momentum", use_filter=True)
+        run(merged, f"C momentum {lb}d + sentiment blend", "blend")
 
 if __name__ == "__main__":
     main()
