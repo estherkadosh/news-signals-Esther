@@ -8,6 +8,7 @@ raw_data/*/
 !raw_data/events.jsonl
 !raw_data/merged_slim.jsonl
 !raw_data/stats.json
+!raw_data/momentum.json
 
 # python junk
 __pycache__/
