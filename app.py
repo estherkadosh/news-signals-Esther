@@ -131,14 +131,18 @@ def pro_chart(ticker, tsig):
     ax2.set_ylabel("Sentiment", color="white", fontsize=7)
     ax2.tick_params(axis="y", colors="white", labelsize=6)
 
-    # x axis: show month ticks
+    # x axis: quarterly ticks so a multi-year range stays readable
     ax1.tick_params(axis="x", colors="white", labelsize=6, rotation=0)
     import matplotlib.dates as mdates
-    ax1.xaxis.set_major_locator(mdates.MonthLocator())
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b"))  # Jan, Feb...
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # every 3 months
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))  # Jan '24
 
-    ax1.set_title(f"{ticker} · Price (white) vs News Sentiment (bars) · 2026",
+    yr_min = tsig["date"].min().year
+    yr_max = tsig["date"].max().year
+    span = f"{yr_min}" if yr_min == yr_max else f"{yr_min}–{yr_max}"
+    ax1.set_title(f"{ticker} · Price (white) vs News Sentiment (bars) · {span}",
                   color="white", fontsize=6.5)
+    
     for s in ax1.spines.values(): s.set_color("#333")
     for s in ax2.spines.values(): s.set_color("#333")
     fig.tight_layout(pad=0.3)
