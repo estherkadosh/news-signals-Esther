@@ -3,8 +3,9 @@
 app.py
 news-driven equity signals dashboard.
 ranks all tickers long/short, most to least recommended, with professional
-dark charts, recent events, a data-confidence score, source links, and a
-limitations panel. run: streamlit run app.py
+dark charts, recent events, a data-confidence score, source links, tabs
+(Long / Short / About), field tooltips, and methodology panels.
+run: streamlit run app.py
 """
 
 import json
@@ -23,6 +24,17 @@ SENT = "raw_data/sentiment.jsonl"
 EVENTS = "raw_data/events.jsonl"
 MERGED = "raw_data/merged_slim.jsonl"
 COLS = 4
+
+# field explanations shown on hover (help=)
+TIP = {
+    "score": "Sentiment score from -1 to +1. How positive recent news is for this stock. Not a price prediction - a ranking of relative positivity.",
+    "outlook": "Historical base rate: how often top-signal stocks rose the next day, and the typical next-day move size. Same figure for all cards - it describes the strategy, not the single stock.",
+    "last": "Date of the most recent article collected for this ticker.",
+    "articles": "Total number of news articles collected for this ticker across all 5 sources.",
+    "sources": "Average number of distinct sources per news-day. Higher = a real, widely-reported event; 1 = a single outlet, likelier noise.",
+    "events": "Event types tagged in recent news (earnings, M&A, guidance, etc.) by the rule-based classifier.",
+    "confidence": "Trust score (0-100): how many articles are decisive (non-neutral) plus source breadth. NOT statistical significance.",
+}
 
 # 2- load data (cached)
 @st.cache_data
@@ -92,11 +104,6 @@ def build_ranking(method, min_articles, min_sources):
         rec_ev = []
         for e in recent["events"].dropna():
             rec_ev += [x for x in str(e).split(",") if x]
-        # if "confidence" in g and g["confidence"].max() > 0:  # use real confidence column
-        #     conf = int(min(g["confidence"].mean() / g["confidence"].max() * 100, 100))
-        # else:
-        #     conf = 50
-        # conf_label = "high" if conf >= 66 else "medium" if conf >= 40 else "low"
         nonzero = (g["polarity"].abs() > 0).mean()  # share of decisive (non-neutral) days
         breadth = min(g["n_sources"].mean() / 3, 1) if "n_sources" in g else 0.5  # source breadth
         conf = int((nonzero * 0.6 + breadth * 0.4) * 100)  # decisive + broad = confident
@@ -142,7 +149,7 @@ def pro_chart(ticker, tsig):
     span = f"{yr_min}" if yr_min == yr_max else f"{yr_min}–{yr_max}"
     ax1.set_title(f"{ticker} · Price (white) vs News Sentiment (bars) · {span}",
                   color="white", fontsize=6.5)
-    
+
     for s in ax1.spines.values(): s.set_color("#333")
     for s in ax2.spines.values(): s.set_color("#333")
     fig.tight_layout(pad=0.3)
@@ -176,21 +183,20 @@ def render_grid(rank_df, signals, articles, n_show, stats):
                 color = "green" if row["score"] > 0 else "red"
                 rank_i = rows.index(row) + 1
                 st.markdown(f"**#{rank_i} · {row['ticker']}**")
-                st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]")
+                st.markdown(f"Signal score: :{color}[{row['score']:+.2f}]", help=TIP["score"])
                 lean = "leans up" if row["score"] > 0 else "leans down"
                 if stats and "up_rate" in stats:
-                    st.caption(f"Outlook: {lean} · ~{stats['up_rate']:.0f}% up next day · typ. ±{stats['avg_move']:.1f}%")
-                st.caption(f"Last news: {row['last_date']}")
-                st.caption(f"Total articles: {row['total_articles']}")
-                st.caption(f"Avg sources/day: {row['avg_sources']}")
-                st.caption(f"Recent events: {row['recent_events']}")
-                st.caption(f"Data confidence: {row['conf']}/100 ({row['conf_label']})")
+                    st.caption(f"Outlook: {lean} · ~{stats['up_rate']:.0f}% up next day · typ. ±{stats['avg_move']:.1f}%",
+                               help=TIP["outlook"])
+                st.caption(f"Last news: {row['last_date']}", help=TIP["last"])
+                st.caption(f"Total articles: {row['total_articles']}", help=TIP["articles"])
+                st.caption(f"Avg sources/day: {row['avg_sources']}", help=TIP["sources"])
+                st.caption(f"Recent events: {row['recent_events']}", help=TIP["events"])
+                st.caption(f"Data confidence: {row['conf']}/100 ({row['conf_label']})", help=TIP["confidence"])
                 st.pyplot(pro_chart(row["ticker"], tsig))
                 with st.expander("Why this signal? (top driving news)"):
                     show_drivers(row["ticker"], articles, tsig)
 
-# final- main
-st.title("News-Driven Equity Signals · S&P 500 · 2026")
 # 9- load saved backtest stats (instant - no yfinance call)
 @st.cache_data
 def load_stats():
@@ -199,7 +205,18 @@ def load_stats():
     except Exception:
         return None
 
-# limitations panel - numbers read from saved stats.json
+@st.cache_data
+def load_momentum():
+    try:
+        return json.load(open("raw_data/momentum.json", encoding="utf-8"))
+    except Exception:
+        return None
+
+# final- main
+st.title("News-Driven Equity Signals · S&P 500")
+st.caption("Scores positive/negative news sentiment for ~500 S&P 500 stocks and ranks them: "
+           "the LONG tab by how positive their recent news is, the SHORT tab by how negative.")
+
 stats = load_stats()
 t_all = f"{stats['t_all']:.2f}" if stats else "n/a"
 n_days = stats["n_days"] if stats else "n/a"
@@ -209,8 +226,73 @@ total_art = f"{stats['total_articles']:,}" if stats else "n/a"
 nonzero_art = f"{stats['nonzero_articles']:,}" if stats else "n/a"
 ticker_days = f"{stats['ticker_days']:,}" if stats else "n/a"
 
-with st.expander("⚠ limitations & methodology — read before trusting any signal"):
-    st.markdown(f"""
+signals = load_signals()
+articles = load_articles()
+
+# controls (shared across tabs)
+c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
+method = c1.selectbox("Rank by", ["decay-weighted", "7-day mean", "last day"], index=0,
+                      help="How to turn a stock's news history into one score. "
+                           "decay-weighted: recent news counts most (half-life ~3 days). "
+                           "7-day mean: simple average of the last 7 news-days. "
+                           "last day: only the most recent news-day.")
+min_articles = c2.slider("Min articles", 1, 50, 5,
+                         help="Hide stocks with fewer than this many total articles. "
+                              "Higher = only well-covered names, more reliable signal.")
+min_sources = c3.slider("Min sources/day", 1.0, 5.0, 1.0, 0.5,
+                        help="Hide stocks whose news comes from fewer distinct sources per day. "
+                             "Higher = only widely-reported stocks, less noise.")  # coverage filter
+n_show = c4.slider("Show per list", 4, 100, 20,
+                   help="How many stocks to display in each of the LONG and SHORT tabs.")
+search = c5.text_input("🔍 Search ticker", "",
+                       help="Type a ticker (e.g. NVDA) to jump straight to its card.").strip().upper()
+
+rank = build_ranking(method, min_articles, min_sources)
+longs = rank[rank["score"] > 0]
+shorts = rank[rank["score"] < 0].sort_values("score")
+st.caption(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short]")
+
+# search result - show one ticker's card directly if searched
+if search:
+    hit = rank[rank["ticker"] == search]
+    if len(hit):
+        st.divider()
+        st.subheader(f"🔍 Search result: {search}")
+        render_grid(hit, signals, articles, 1, stats)
+        st.divider()
+    else:
+        st.warning(f"'{search}' not found in current ranking (check spelling, or lower the Min filters).")
+
+# tabs: Long | Short | About
+tab_long, tab_short, tab_about = st.tabs(["🟢 LONG", "🔴 SHORT", "ℹ️ About & methodology"])
+
+with tab_long:
+    st.header(":green[LONG — buy candidates]  (most to least recommended)")
+    render_grid(longs, signals, articles, n_show, stats)
+
+with tab_short:
+    st.header(":red[SHORT — sell candidates]  (most to least recommended)")
+    render_grid(shorts, signals, articles, n_show, stats)
+
+with tab_about:
+    # glossary of card fields
+    with st.expander("📖 what each field means", expanded=True):
+        st.markdown(f"""
+<small>
+- **Signal score** — {TIP['score']}
+- **Outlook** — {TIP['outlook']}
+- **Total articles** — {TIP['articles']}
+- **Avg sources/day** — {TIP['sources']}
+- **Recent events** — {TIP['events']}
+- **Data confidence** — {TIP['confidence']}
+- **Chart** — white line is price; green/red bars are daily news sentiment above/below zero.
+- **Why this signal?** — the actual headlines that drove the score, with source and link.
+</small>
+""", unsafe_allow_html=True)
+
+    # limitations panel - numbers read from saved stats.json
+    with st.expander("⚠ limitations — read before trusting any signal"):
+        st.markdown(f"""
 <small>
 **Data.** {total_art} articles collected from 5 sources (SEC EDGAR, Finviz, StockAnalysis,
 Yahoo, NASDAQ). Of these, {nonzero_art} carry non-neutral sentiment; the backtest uses
@@ -234,10 +316,9 @@ consistency, not a p-value. *Example:* a ticker with few articles can still show
 With the stronger LLM sentiment the signal now holds across both, not only well-covered names.
 
 **Other caveats.** Sources expose only ~2 months back (recent days over-represented).
-Returns are next-day (no look-ahead). The S&P 500 universe is fixed at one snapshot,
-so mid-year index changes aren't tracked.
-Universe is the S&P 500 at one snapshot, plus MRVL and SPCX added manually
-(both newly index-eligible in 2026); prices via Yahoo Finance cover both NYSE and NASDAQ listings.
+Returns are next-day (no look-ahead). Universe is the S&P 500 at one snapshot, plus MRVL and
+SPCX added manually (both newly index-eligible in 2026); prices via Yahoo Finance cover both
+NYSE and NASDAQ listings; mid-year index changes aren't tracked.
 
 **Newly-listed stocks.** A ticker appears once it has enough articles, but its price line needs
 at least two trading days to draw. *Example:* SPCX (SpaceX) began trading 12 Jun 2026 — only one
@@ -246,12 +327,10 @@ trading day so far — so it shows sentiment but no price line yet, and is far t
 **Not investment advice.**
 </small>
 """, unsafe_allow_html=True)
-    
 
-#second panel - experiments results:
-# methodology panel - the full experiment journey
-with st.expander("🔬 methodology — how the signal was built & tested"):
-    st.markdown(f"""
+    # methodology panel - the full experiment journey
+    with st.expander("🔬 methodology — how the signal was built & tested"):
+        st.markdown(f"""
 <small>
 **Two NLP layers.** Qwen3-4B sentiment (LLM scoring each article on a −1..+1 price-impact scale)
 + a rule-based
@@ -279,7 +358,6 @@ prints after the price moved). Rejected; reverted to next-day.
 - *2-day horizon, shift(-2)* — gave a NEGATIVE t-stat (≈ -1.5): the signal reverses after two
 days. Classic overreaction / mean-reversion — the market over-responds on day 1, corrects on day 2.
 Confirms next-day (shift -1) is the right horizon.
-
 - *FinBERT vs Qwen3-4B (model comparison)* — ran both on the same 131k articles, same backtest.
 With a plain label prompt FinBERT won (t-stat 1.30 vs 0.71); but with a numeric price-impact
 prompt Qwen3 won decisively and significantly (t-stat 2.19 vs 1.41). Same model, only the prompt
@@ -292,23 +370,16 @@ thinly-covered names too — a sign the model, not just the coverage, drives the
 </small>
 """, unsafe_allow_html=True)
 
-# third panel - momentum thesis
-@st.cache_data
-def load_momentum():
-    try:
-        return json.load(open("raw_data/momentum.json", encoding="utf-8"))
-    except Exception:
-        return None
-
-mom = load_momentum()
-if mom:
-    with st.expander("📈 bonus thesis — news sentiment as a momentum filter"):
-        rows = ""
-        for lb in ["5", "21", "63"]:
-            m = mom.get(lb, {})
-            rows += (f"| {lb}-day | {m.get('alone', 0):+.2f} | {m.get('filter', 0):+.2f} | "
-                     f"**{m.get('blend', 0):+.2f}** |\n")
-        st.markdown(f"""
+    # momentum thesis panel
+    mom = load_momentum()
+    if mom:
+        with st.expander("📈 bonus thesis — news sentiment as a momentum filter"):
+            mrows = ""
+            for lb in ["5", "21", "63"]:
+                m = mom.get(lb, {})
+                mrows += (f"| {lb}-day | {m.get('alone', 0):+.2f} | {m.get('filter', 0):+.2f} | "
+                          f"**{m.get('blend', 0):+.2f}** |\n")
+            st.markdown(f"""
 <small>
 Momentum alone (buy recent winners, short recent losers) **loses** on news-covered stocks —
 these are heavily-traded names prone to overreaction, so raw momentum reverses. Adding news
@@ -319,41 +390,8 @@ more sentiment, higher t-stat — across every lookback.
 
 | Lookback | Momentum alone | + News filter | + Sentiment blend |
 |---|---|---|---|
-{rows}
+{mrows}
 
 <small>*Best: 21-day momentum blended with sentiment (t-stat +0.87, up from −0.67 alone).
 Sentiment is the filter that separates real momentum from a bubble.*</small>
 """, unsafe_allow_html=True)
-
-signals = load_signals()
-articles = load_articles()
-c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
-method = c1.selectbox("Rank by", ["decay-weighted", "7-day mean", "last day"], index=0)
-min_articles = c2.slider("Min articles", 1, 50, 5)
-min_sources = c3.slider("Min sources/day", 1.0, 5.0, 1.0, 0.5)  # coverage filter
-n_show = c4.slider("Show per list", 4, 100, 20)
-search = c5.text_input("🔍 Search ticker", "").strip().upper()  # find one ticker directly
-
-rank = build_ranking(method, min_articles, min_sources)
-longs = rank[rank["score"] > 0]
-shorts = rank[rank["score"] < 0].sort_values("score")
-c4.markdown(f"**{len(rank)} tickers** · :green[{len(longs)} long] / :red[{len(shorts)} short]")
-
-# search result - show one ticker's card directly if searched
-if search:
-    hit = rank[rank["ticker"] == search]
-    if len(hit):
-        st.divider()
-        st.subheader(f"🔍 Search result: {search}")
-        render_grid(hit, signals, articles, 1, stats)
-    else:
-        st.warning(f"'{search}' not found in current ranking (check spelling, or lower the Min filters).")
-    st.divider()
-
-st.divider()
-st.header(":green[LONG — buy candidates]  (most to least recommended)")
-render_grid(longs, signals, articles, n_show, stats)
-
-st.divider()
-st.header(":red[SHORT — sell candidates]  (most to least recommended)")
-render_grid(shorts, signals, articles, n_show, stats)
