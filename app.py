@@ -218,13 +218,26 @@ st.caption("Scores positive/negative news sentiment for ~500 S&P 500 stocks and 
            "the LONG tab by how positive their recent news is, the SHORT tab by how negative.")
 
 stats = load_stats()
-t_all = f"{stats['t_all']:.2f}" if stats else "n/a"
-n_days = stats["n_days"] if stats else "n/a"
-t_high = f"{stats['t_high']:.2f}" if stats else "n/a"
-t_low = f"{stats['t_low']:.2f}" if stats else "n/a"
-total_art = f"{stats['total_articles']:,}" if stats else "n/a"
-nonzero_art = f"{stats['nonzero_articles']:,}" if stats else "n/a"
-ticker_days = f"{stats['ticker_days']:,}" if stats else "n/a"
+
+def s_num(key, fmt="{:.2f}", default="n/a"):
+    """reads a live number from stats.json, formatted; falls back if missing."""
+    if stats and key in stats and stats[key] is not None:
+        try:
+            return fmt.format(stats[key])
+        except Exception:
+            return str(stats[key])
+    return default
+
+t_all = s_num("t_all")
+n_days = s_num("n_days", "{:d}")
+t_high = s_num("t_high")
+t_low = s_num("t_low")
+t_raw = s_num("t_raw")            # raw-mean baseline (auto if present)
+sharpe = s_num("sharpe")
+hit = s_num("hit", "{:.0f}")
+total_art = s_num("total_articles", "{:,}")
+nonzero_art = s_num("nonzero_articles", "{:,}")
+ticker_days = s_num("ticker_days", "{:,}")
 
 signals = load_signals()
 articles = load_articles()
@@ -275,6 +288,13 @@ with tab_short:
     render_grid(shorts, signals, articles, n_show, stats)
 
 with tab_about:
+    # live headline metrics (auto from stats.json)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Backtest t-stat", t_all, help="Overall long-short t-stat. ~2.0 = statistically significant.")
+    m2.metric("Sharpe", sharpe, help="Annualized Sharpe ratio of the daily long-short spread.")
+    m3.metric("Hit rate", f"{hit}%" if hit != "n/a" else "n/a", help="Share of days the long-short spread was positive.")
+    m4.metric("Trading days", n_days, help="Number of trading days in the backtest.")
+
     # glossary of card fields
     with st.expander("📖 what each field means", expanded=True):
         st.markdown(f"""
@@ -300,8 +320,8 @@ Yahoo, NASDAQ). Of these, {nonzero_art} carry non-neutral sentiment; the backtes
 
 **How the signal is weighted.** Three layers: *source weighting* (trust full-body sources like
 Yahoo over headline-only Finviz), *strength weighting* (neutral articles count near-zero),
-and *confidence weighting* (days with more agreeing sources count more). Each layer raised the
-backtest t-stat (0.32 → 0.60 → {t_all}).
+and *confidence weighting* (days with more agreeing sources count more). The raw signal
+(t-stat ≈ {t_raw}) rises to {t_all} after all three layers.
 
 **Sentiment model errors.** The LLM occasionally misreads ambiguous or sarcastic headlines,
 though far less than a small model. Every score still traces to a specific article (see "Why this signal?").
@@ -347,9 +367,9 @@ near-zero without being deleted. Fixes the dilution from many neutral headlines.
 
 3. *Confidence weighting* — ticker-days backed by more agreeing sources and sharper sentiment
 count more in the long-short. Rationale: 5 sources agreeing = a real event; 1 source = noise.
-Effect: → t-stat {t_all}.
+Raw t-stat ≈ {t_raw} rises to {t_all} with all three layers.
 
-**Experiments run (honest record):**
+**Experiments run (fixed historical record — these document past tests, not the live numbers):**
 
 - *Text cleaning of EDGAR boilerplate* — improved readability but did NOT raise t-stat; the
 problem was neutral dilution, not in-text noise.

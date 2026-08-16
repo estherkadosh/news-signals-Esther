@@ -1,1 +1,1 @@
-{"t_all": 2.16, "n_days": 153, "t_high": 1.84, "t_low": 2.12, "total_articles": 131148, "nonzero_articles": 44365, "ticker_days": 22296, "up_rate": 51.0, "avg_move": 2.1}
+{"t_all": 2.25, "t_raw": 1.35, "sharpe": 2.88, "hit": 57.8, "n_days": 154, "t_high": 1.78, "t_low": 2.23, "total_articles": 131148, "nonzero_articles": 44365, "ticker_days": 22296, "up_rate": 51.0, "avg_move": 2.1}
