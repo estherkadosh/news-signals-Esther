@@ -215,7 +215,8 @@ def load_momentum():
 # final- main
 st.title("News-Driven Equity Signals · S&P 500")
 st.caption("Scores positive/negative news sentiment for ~500 S&P 500 stocks and ranks them: "
-           "the LONG tab by how positive their recent news is, the SHORT tab by how negative.")
+           "the LONG tab by how positive their recent news is, the SHORT tab by how negative.  "
+           "· Esther Kadosh · August 2026")
 
 stats = load_stats()
 
