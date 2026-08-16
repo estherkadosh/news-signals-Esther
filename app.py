@@ -141,8 +141,11 @@ def pro_chart(ticker, tsig):
     # x axis: quarterly ticks so a multi-year range stays readable
     ax1.tick_params(axis="x", colors="white", labelsize=6, rotation=0)
     import matplotlib.dates as mdates
-    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # every 3 months
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=6))  # every 6 months
     ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))  # Jan '24
+    for lbl in ax1.get_xticklabels():
+        lbl.set_rotation(30)  # tilt so labels don't collide
+        lbl.set_ha("right")
 
     yr_min = tsig["date"].min().year
     yr_max = tsig["date"].max().year
